@@ -45,8 +45,8 @@ c_ops_dressed = []
 
 for i in range(len(evals)):
 
-    phi_i = np.sqrt(gamma_phi(0)/2) * estates[i].dag() * sm * estates[i]
-    c_ops_dressed.append(phi_i * (estates[i] * estates[i].dag()))
+    phi_i = np.sqrt(gamma_phi(0)/2) * estates[i].dag() * sz * estates[i]
+    c_ops_dressed.append(np.sqrt(phi_i) * (estates[i] * estates[i].dag()))
     
     for j in range(len(evals)):
 
@@ -57,34 +57,44 @@ for i in range(len(evals)):
             cav_ij  = estates[i].dag() * (a + a.dag()) * estates[j]
             atom_ij = estates[i].dag() * (sm + sm.dag()) * estates[j]
 
-            c_ops_dressed.append(kappa * abs(cav_ij)**2 * (estates[i] * estates[j].dag()))
-            c_ops_dressed.append(gamma * abs(atom_ij)**2 * (estates[i] * estates[j].dag()))
+            c_ops_dressed.append(np.sqrt(kappa * abs(cav_ij)**2) * (estates[i] * estates[j].dag()))
+            c_ops_dressed.append(np.sqrt(gamma * abs(atom_ij)**2) * (estates[i] * estates[j].dag()))
         
         if evals[j] != evals[i]:
 
-            atom_ij = estates[i].dag() * sm * estates[j]
+            atom_ij = estates[i].dag() * sz * estates[j]
 
-            c_ops_dressed.append(gamma_phi(delta_ij/2) * abs(atom_ij)**2 * (estates[i] * estates[j].dag()))
+            c_ops_dressed.append(np.sqrt(gamma_phi(delta_ij/2) * abs(atom_ij)**2) * (estates[i] * estates[j].dag()))
 
 out_dressed = qt.mesolve(H, psi0, tlist, c_ops_dressed, [a.dag() * a, sm.dag() * sm])
 
 # ====================
 # Plotting Everything
 # ====================
-fig, axes = plt.subplots(1, 2, figsize=(14, 5), sharey=True)
+plt.figure(figsize=(7, 5))
 
-axes[0].plot(tlist, out_std.expect[0], "b", label=r"$\langle a^\dagger a \rangle$")
-axes[0].plot(tlist, out_std.expect[1], "r", label=r"$\langle \sigma_+\sigma_- \rangle$")
-axes[0].set_title("Standard Master Equation")
-axes[0].set_xlabel("Time")
-axes[0].set_ylabel("Occupation Probability")
-axes[0].legend()
+plt.plot(tlist, out_std.expect[0], "b", label=r"$\langle a^\dagger a \rangle$")
+plt.plot(tlist, out_std.expect[1], "r", label=r"$\langle \sigma_+\sigma_- \rangle$")
 
-axes[1].plot(tlist, out_dressed.expect[0], "b", label=r"$\langle a^\dagger a \rangle$")
-axes[1].plot(tlist, out_dressed.expect[1], "r", label=r"$\langle \sigma_+\sigma_- \rangle$")
-axes[1].set_title("Dressed Master Equation")
-axes[1].set_xlabel("Time")
-axes[1].legend()
+plt.title("Standard Master Equation")
+plt.xlabel("Time")
+plt.ylabel("Occupation Probability")
+plt.legend()
 
 plt.tight_layout()
-plt.show()
+plt.savefig("SME.png", dpi=300)
+plt.close()
+
+plt.figure(figsize=(7, 5))
+
+plt.plot(tlist, out_dressed.expect[0], "b", label=r"$\langle a^\dagger a \rangle$")
+plt.plot(tlist, out_dressed.expect[1], "r", label=r"$\langle \sigma_+\sigma_- \rangle$")
+
+plt.title("Dressed Master Equation")
+plt.xlabel("Time")
+plt.ylabel("Occupation Probability")
+plt.legend()
+
+plt.tight_layout()
+plt.savefig("DME.png", dpi=300)
+plt.close()
