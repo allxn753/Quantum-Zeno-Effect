@@ -14,6 +14,9 @@ gamma = 0.05  # atom dissipation rate
 n_th_a = 0.0  # temperature in frequency units
 use_rwa = False
 
+def gamma_phi(omega):
+    return 0.005
+
 tlist = np.linspace(0, 40, 200)
 
 a  = qt.tensor(qt.destroy(N), qt.qeye(2))
@@ -38,20 +41,30 @@ out_std = qt.mesolve(H, psi0, tlist, c_ops_std, [a.dag() * a, sm.dag() * sm])
 # ====================
 evals, estates = H.eigenstates()
 
-X_cav  = a + a.dag()
-X_atom = sm + sm.dag()
-
 c_ops_dressed = []
 
 for i in range(len(evals)):
+
+    phi_i = np.sqrt(gamma_phi(0)/2) * estates[i].dag() * sm * estates[i]
+    c_ops_dressed.append(phi_i * (estates[i] * estates[i].dag()))
+    
     for j in range(len(evals)):
+
+        delta_ij = abs(evals[i] - evals[j])
+
         if evals[j] > evals[i]:
 
-            cav_ij  = estates[i].dag() * X_cav  * estates[j]
-            atom_ij = estates[i].dag() * X_atom * estates[j]
+            cav_ij  = estates[i].dag() * (a + a.dag()) * estates[j]
+            atom_ij = estates[i].dag() * (sm + sm.dag()) * estates[j]
 
-            c_ops_dressed.append(np.sqrt(kappa * abs(cav_ij)**2) * (estates[i] * estates[j].dag()))
-            c_ops_dressed.append(np.sqrt(gamma * abs(atom_ij)**2) * (estates[i] * estates[j].dag()))
+            c_ops_dressed.append(kappa * abs(cav_ij)**2 * (estates[i] * estates[j].dag()))
+            c_ops_dressed.append(gamma * abs(atom_ij)**2 * (estates[i] * estates[j].dag()))
+        
+        if evals[j] != evals[i]:
+
+            atom_ij = estates[i].dag() * sm * estates[j]
+
+            c_ops_dressed.append(gamma_phi(delta_ij/2) * abs(atom_ij)**2 * (estates[i] * estates[j].dag()))
 
 out_dressed = qt.mesolve(H, psi0, tlist, c_ops_dressed, [a.dag() * a, sm.dag() * sm])
 
@@ -60,8 +73,8 @@ out_dressed = qt.mesolve(H, psi0, tlist, c_ops_dressed, [a.dag() * a, sm.dag() *
 # ====================
 fig, axes = plt.subplots(1, 2, figsize=(14, 5), sharey=True)
 
-axes[0].plot(tlist, out_std.expect[0], "b--", label=r"$\langle a^\dagger a \rangle$")
-axes[0].plot(tlist, out_std.expect[1], "r--", label=r"$\langle \sigma_+\sigma_- \rangle$")
+axes[0].plot(tlist, out_std.expect[0], "b", label=r"$\langle a^\dagger a \rangle$")
+axes[0].plot(tlist, out_std.expect[1], "r", label=r"$\langle \sigma_+\sigma_- \rangle$")
 axes[0].set_title("Standard Master Equation")
 axes[0].set_xlabel("Time")
 axes[0].set_ylabel("Occupation Probability")
