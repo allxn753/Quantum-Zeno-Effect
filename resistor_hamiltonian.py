@@ -18,7 +18,7 @@ def single_qubit_resistor_hamiltonian(
     """
     Build the Hamiltonian for a transmon (qubit) coupled to a resistor bath model.
 
-    Args:
+    Arguments:
         w_A: Transmon qubit angular frequency (rad/s).
         R: Resistor value (Ohms).
         w_c: Cutoff angular frequency (rad/s).
