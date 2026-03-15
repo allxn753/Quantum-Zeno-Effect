@@ -1,0 +1,251 @@
+"""
+Figure 5 — Cattaneo et al., Ann. Phys. (Berlin) 2021, 533, 2100038
+
+Libraries
+---------
+qutip               operators, Liouvillian, mesolve, negativity,
+                    entropy_vn, ptrace, propagator
+matplotlib          plotting
+scipy.integrate.quad  the two Cauchy principal-value bath integrals —
+                    no QuTiP equivalent exists for spectral density integrals
+numpy               Cholesky decomp of the 2×2 rate matrix (qt.liouvillian
+                    accepts jump operators, not a rate matrix directly);
+                    also used for the Choi-matrix reshape of qt.propagator
+"""
+
+import numpy as np
+from scipy.integrate import quad
+import qutip as qt
+import matplotlib.pyplot as plt
+
+# ── Parameters (ℏ = ω₁ = 1) ──────────────────────────────────────────────────
+omega1, omega2 = 1.0, 0.99
+mu      = 10**(-1.5)
+beta    = 10.0
+T1_inv  = 1.0 / 3e5
+omega_C = 20.0
+
+# ── Ohmic spectral density & Bose–Einstein factor ─────────────────────────────
+def J(w):   return mu**2 * w * omega_C**2 / (omega_C**2 + w**2)
+def N_B(w):
+    a = beta * w
+    return 0.0 if a > 700 else (1/a if a < 1e-12 else 1/(np.exp(a) - 1))
+
+# ── One-sided Fourier transforms Γ(±ω)  (Eq. A2) ─────────────────────────────
+# These integrals have no QuTiP equivalent — scipy.quad is the right tool.
+def Gamma_pos(oq):
+    re = np.pi * (N_B(oq) + 1) * J(oq)
+    f  = lambda w: J(w) * ((N_B(w)+1)/(oq-w+1e-30) + N_B(w)/(oq+w))
+    v1,_ = quad(f, 1e-7, oq-1e-4, limit=600, epsabs=1e-13)
+    v2,_ = quad(f, oq+1e-4, 1e4,  limit=600, epsabs=1e-13)
+    return re + 1j*(v1+v2)
+
+def Gamma_neg(oq):
+    # NOTE: Im[Γ(−ω)] ≠ −Im[Γ(+ω)] — this integral must be computed separately
+    re    = np.pi * N_B(oq) * J(oq)
+    f_pv  = lambda w: J(w) * N_B(w) / (oq-w+1e-30)        # Cauchy-singular at w=oq
+    f_reg = lambda w: -J(w) * (N_B(w)+1) / (oq+w)          # regular
+    v1,_ = quad(f_pv,  1e-7, oq-1e-4, limit=600, epsabs=1e-13)
+    v2,_ = quad(f_pv,  oq+1e-4, 1e4,  limit=600, epsabs=1e-13)
+    vr,_ = quad(f_reg, 1e-7, 1e4,     limit=600, epsabs=1e-13)
+    return re + 1j*(v1+v2+vr)
+
+print("Computing bath integrals…")
+G  = [Gamma_pos(omega1), Gamma_pos(omega2)]
+Gn = [Gamma_neg(omega1), Gamma_neg(omega2)]
+
+# ── Master-equation coefficients (Eq. A1) ─────────────────────────────────────
+def gd(j,k):
+    v = G[j] + np.conj(G[k])
+    if j == k: v += T1_inv
+    return complex(v)
+def gu(j,k): return complex(Gn[j] + np.conj(Gn[k]))
+def sd(j,k): return complex((G[j]  - np.conj(G[k]))  / (2j))
+def su(j,k): return complex((Gn[j] - np.conj(Gn[k])) / (2j))
+
+# ── QuTiP operators ───────────────────────────────────────────────────────────
+I = qt.qeye(2)
+sp1, sm1 = qt.tensor(qt.sigmap(), I), qt.tensor(qt.sigmam(), I)
+sp2, sm2 = qt.tensor(I, qt.sigmap()), qt.tensor(I, qt.sigmam())
+sx1, sx2 = qt.tensor(qt.sigmax(), I), qt.tensor(I, qt.sigmax())
+Pe1 = qt.tensor(qt.basis(2,0)*qt.basis(2,0).dag(), I)
+Pe2 = qt.tensor(I, qt.basis(2,0)*qt.basis(2,0).dag())
+spl, sml = [sp1,sp2], [sm1,sm2]
+
+# ── Hamiltonian H = H_S + H_LS  (Eqs. 1–3) ───────────────────────────────────
+H = ( 0.5*(omega1*qt.tensor(qt.sigmaz(),I) + omega2*qt.tensor(I,qt.sigmaz()))
+    + sum(sd(j,k)*spl[k]*sml[j] + su(j,k)*sml[k]*spl[j]
+          for j in range(2) for k in range(2)) )
+
+# ── Collective jump operators  (Eq. 4) ────────────────────────────────────────
+# qt.liouvillian(H, c_ops) requires individual jump operators, not a rate matrix.
+# We Cholesky-decompose the 2×2 correlated rate matrices γ↓ and γ↑ to get them.
+def jump_ops(rate_fn, base_ops):
+    G_mat = np.array([[rate_fn(j,k) for k in range(2)] for j in range(2)])
+    G_mat = 0.5*(G_mat + G_mat.conj().T)
+    try:    L = np.linalg.cholesky(G_mat + 1e-14*np.eye(2))
+    except: evals,evecs = np.linalg.eigh(G_mat); L = evecs@np.diag(np.maximum(evals,0)**.5)
+    return [L[0,m]*base_ops[0] + L[1,m]*base_ops[1]
+            for m in range(2) if (L[0,m]*base_ops[0]+L[1,m]*base_ops[1]).norm() > 1e-14]
+
+c_ops = jump_ops(gd, sml) + jump_ops(gu, spl)
+
+# ── Initial states ─────────────────────────────────────────────────────────────
+rho_Syn = qt.ket2dm(qt.tensor(
+    np.cos(np.pi/4)*qt.basis(2,0) + np.sin(np.pi/4)*qt.basis(2,1),
+    np.cos(np.pi/3)*qt.basis(2,0) + 1j*np.sin(np.pi/3)*qt.basis(2,1)))
+
+rho_sub = qt.ket2dm(
+    (qt.tensor(qt.basis(2,0),qt.basis(2,1))
+   - qt.tensor(qt.basis(2,1),qt.basis(2,0))) / np.sqrt(2))
+
+psi_p   = (qt.basis(2,0) + qt.basis(2,1)) / np.sqrt(2)
+rho_C   = qt.ket2dm(qt.tensor(psi_p, psi_p))
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# Panel (a) — Pearson coefficient
+# ═══════════════════════════════════════════════════════════════════════════════
+print("Panel (a)…")
+dt    = 0.1
+t_fin = np.arange(0.0, 1001.0 + dt, dt)
+res_a = qt.mesolve(H, rho_Syn, t_fin, c_ops, e_ops=[sx1, sx2])
+s1, s2 = np.array(res_a.expect[0]), np.array(res_a.expect[1])
+
+win = int(round(7.0 / dt))   # Δt = 7/ω₁ window
+def pearson(i):
+    a, b = s1[i:i+win]-s1[i:i+win].mean(), s2[i:i+win]-s2[i:i+win].mean()
+    d = np.sqrt((a**2).sum()*(b**2).sum())
+    return float((a*b).sum()/d) if d > 1e-20 else 0.0
+
+stride = 10   # evaluate every 1/ω₁
+t_eval = t_fin[::stride]
+C_arr  = np.array([pearson(i*stride) for i in range(len(t_eval))])
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# Panel (b) — Excited-state populations
+# ═══════════════════════════════════════════════════════════════════════════════
+print("Panel (b)…")
+t_sub = np.linspace(0, 1000, 500)
+res_b = qt.mesolve(H, rho_sub, t_sub, c_ops, e_ops=[Pe1, Pe2])
+Pe1_t = np.array(res_b.expect[0])
+Pe2_t = np.array(res_b.expect[1])
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# Panel (c) — Negativity N(t) and Collectiveness Ī(ε(t))
+# ═══════════════════════════════════════════════════════════════════════════════
+print("Panel (c)…")
+t_neg = np.linspace(0, 100, 150)
+res_c = qt.mesolve(H, rho_C, t_neg, c_ops)
+
+# qt.negativity(rho, subsys) — built-in QuTiP entanglement measure
+neg_t = np.array([qt.negativity(r, 1) for r in res_c.states])
+N_M, t_NM = neg_t.max(), t_neg[neg_t.argmax()]
+print(f"  N_M = {N_M:.4f} at t = {t_NM:.1f}  (paper: 0.37 at t=21)")
+
+# Collectiveness: build Choi matrix from qt.propagator, then use
+# qt.entropy_vn and qt.ptrace for the mutual-information calculation.
+def collectiveness(t):
+    # qt.propagator returns the 16×16 superoperator as a Qobj
+    U = qt.propagator(H, t, c_ops).full()
+    # Choi matrix: Φ_{(IS,ISp),(JS,JSp)} = ¼ U[IS*4+JS, ISp*4+JSp]
+    # dims=[[2,2,2,2],[2,2,2,2]]: subsystems are (S1, S2, S1', S2')
+    n = 4
+    Phi = np.zeros((n**2, n**2), complex)
+    for IS in range(n):
+        for JS in range(n):
+            for ISp in range(n):
+                for JSp in range(n):
+                    Phi[IS*n+ISp, JS*n+JSp] = 0.25 * U[IS*n+JS, ISp*n+JSp]
+    Phi_q = qt.Qobj(Phi, dims=[[2,2,2,2],[2,2,2,2]])
+    # qt.ptrace(rho, sel) keeps subsystems in sel, traces out the rest.
+    # sel=[0,2]: keep S1 and S1' -> rho_11p  (trace out S2, S2')
+    # sel=[1,3]: keep S2 and S2' -> rho_22p  (trace out S1, S1')
+    rho_11p = qt.ptrace(Phi_q, [0, 2])
+    rho_22p = qt.ptrace(Phi_q, [1, 3])
+    # qt.entropy_vn — built-in QuTiP von Neumann entropy
+    MI = (qt.entropy_vn(rho_11p) + qt.entropy_vn(rho_22p)
+        - qt.entropy_vn(Phi_q))
+    return MI / (4 * np.log(2))
+
+t_coll = np.unique(np.concatenate([np.linspace(0,20,10),
+                                    np.linspace(20,60,10),
+                                    np.linspace(60,100,6)]))
+print(f"  Computing {len(t_coll)} Choi states…")
+C_coll = np.array([collectiveness(t) for t in t_coll])
+I_M, t_IM = C_coll.max(), t_coll[C_coll.argmax()]
+print(f"  I_M = {I_M:.4f} at t = {t_IM:.1f}  (paper: 0.81)")
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# Plotting
+# ═══════════════════════════════════════════════════════════════════════════════
+BLUE, ORANGE = '#1f77b4', '#ff7f0e'
+RED,  CYAN   = '#d62728', '#17becf'
+PURPLE       = '#9467bd'
+
+plt.rcParams.update({
+    'font.family': 'serif', 'font.size': 11, 'axes.linewidth': 0.8,
+    'xtick.direction': 'in', 'ytick.direction': 'in',
+    'xtick.top': True, 'ytick.right': True,
+    'xtick.minor.visible': True, 'ytick.minor.visible': True,
+    'figure.facecolor': 'white', 'axes.facecolor': 'white',
+    'savefig.facecolor': 'white', 'savefig.dpi': 200, 'savefig.bbox': 'tight',
+})
+
+# Panel (a)
+fig_a, ax_a = plt.subplots(figsize=(7, 4.5))
+ax_a.plot(t_eval, C_arr, color='black', lw=0.8)
+ax_a.axhline(0,  color='gray', lw=0.5, ls='--', alpha=0.6)
+ax_a.axhline(-1, color='gray', lw=0.4, ls=':',  alpha=0.4)
+ax_a.set(xlim=(0,1000), ylim=(-1.1,0.65),
+         xlabel=r'$t\omega_1$', ylabel=r'$\mathcal{C}_{\Delta t}(t)$')
+ax_a.set_title('(a)', loc='left', fontweight='bold')
+
+for bounds, pos in [((800,850), [0.50,0.54,0.47,0.38]),
+                    ((100,150), [0.50,0.08,0.47,0.38])]:
+    ax_i = ax_a.inset_axes(pos)
+    m = (t_fin >= bounds[0]) & (t_fin <= bounds[1])
+    ax_i.plot(t_fin[m], s1[m], color=BLUE,   lw=1.2,
+              label=r'$\langle\sigma_1^x\rangle$' if bounds[0]==800 else None)
+    ax_i.plot(t_fin[m], s2[m], color=ORANGE, lw=1.2,
+              label=r'$\langle\sigma_2^x\rangle$' if bounds[0]==800 else None)
+    ax_i.set_xlim(*bounds)
+    ax_i.tick_params(labelsize=8)
+    ax_i.set_xlabel(r'$t\omega_1$', fontsize=8, labelpad=1)
+    for sp in ax_i.spines.values(): sp.set_linewidth(0.6)
+    if bounds[0] == 800:
+        ax_i.legend(fontsize=7, loc='upper right', handlelength=1.2,
+                    framealpha=0.9, edgecolor='lightgray')
+
+fig_a.tight_layout()
+fig_a.savefig('fig5a_pearson.png')
+print("Saved: fig5a_pearson.png")
+
+# Panel (b)
+fig_b, ax_b = plt.subplots(figsize=(6, 4.5))
+ax_b.plot(t_sub, Pe1_t, color=RED,  lw=1.5, label=r'$\langle P_1^e(t)\rangle$')
+ax_b.plot(t_sub, Pe2_t, color=BLUE, lw=1.5, label=r'$\langle P_2^e(t)\rangle$')
+ax_b.set(xlim=(0,1000), ylim=(0.40,0.62),
+         xlabel=r'$t\omega_1$', ylabel='Population')
+ax_b.set_title('(b)', loc='left', fontweight='bold')
+ax_b.legend(fontsize=10, loc='upper right', framealpha=0.9, edgecolor='lightgray')
+fig_b.tight_layout()
+fig_b.savefig('fig5b_subradiance.png')
+print("Saved: fig5b_subradiance.png")
+
+# Panel (c)
+fig_c, ax_c = plt.subplots(figsize=(6, 4.5))
+ax_c.plot(t_neg,  neg_t,  color=CYAN,   lw=2.0, label=r'$\mathcal{N}(t)$')
+ax_c.plot(t_coll, C_coll, color=PURPLE, lw=2.0, label=r'$\bar{I}(\mathcal{E}(t))$')
+ax_c.annotate(f'$\\mathcal{{N}}_M={N_M:.2f}$',
+              xy=(t_NM,N_M), xytext=(t_NM+6,N_M+0.05), fontsize=10, color=CYAN,
+              arrowprops=dict(arrowstyle='->', color=CYAN, lw=1.0))
+ax_c.annotate(f'$\\bar{{I}}_M={I_M:.2f}$',
+              xy=(t_IM,I_M), xytext=(t_IM+6,I_M+0.05), fontsize=10, color=PURPLE,
+              arrowprops=dict(arrowstyle='->', color=PURPLE, lw=1.0))
+ax_c.set(xlim=(0,100), ylim=(-0.02,1.0),
+         xlabel=r'$t\omega_1$', ylabel='Value')
+ax_c.set_title('(c)', loc='left', fontweight='bold')
+ax_c.legend(fontsize=10, loc='upper right', framealpha=0.9, edgecolor='lightgray')
+fig_c.tight_layout()
+fig_c.savefig('fig5c_entanglement.png')
+print("Saved: fig5c_entanglement.png")
