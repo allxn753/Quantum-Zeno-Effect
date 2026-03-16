@@ -191,34 +191,41 @@ plt.rcParams.update({
     'savefig.facecolor': 'white', 'savefig.dpi': 200, 'savefig.bbox': 'tight',
 })
 
-# Panel (a)
+# Panel (a1) — Pearson coefficient
 fig_a, ax_a = plt.subplots(figsize=(7, 4.5))
-ax_a.plot(t_eval, C_arr, color='black', lw=0.8)
+ax_a.plot(t_eval, C_arr, color='black')
 ax_a.axhline(0,  color='gray', lw=0.5, ls='--', alpha=0.6)
 ax_a.axhline(-1, color='gray', lw=0.4, ls=':',  alpha=0.4)
 ax_a.set(xlim=(0,1000), ylim=(-1.1,0.65),
          xlabel=r'$t\omega_1$', ylabel=r'$\mathcal{C}_{\Delta t}(t)$')
-ax_a.set_title('(a)', loc='left', fontweight='bold')
-
-for bounds, pos in [((800,850), [0.50,0.54,0.47,0.38]),
-                    ((100,150), [0.50,0.08,0.47,0.38])]:
-    ax_i = ax_a.inset_axes(pos)
-    m = (t_fin >= bounds[0]) & (t_fin <= bounds[1])
-    ax_i.plot(t_fin[m], s1[m], color=BLUE,   lw=1.2,
-              label=r'$\langle\sigma_1^x\rangle$' if bounds[0]==800 else None)
-    ax_i.plot(t_fin[m], s2[m], color=ORANGE, lw=1.2,
-              label=r'$\langle\sigma_2^x\rangle$' if bounds[0]==800 else None)
-    ax_i.set_xlim(*bounds)
-    ax_i.tick_params(labelsize=8)
-    ax_i.set_xlabel(r'$t\omega_1$', fontsize=8, labelpad=1)
-    for sp in ax_i.spines.values(): sp.set_linewidth(0.6)
-    if bounds[0] == 800:
-        ax_i.legend(fontsize=7, loc='upper right', handlelength=1.2,
-                    framealpha=0.9, edgecolor='lightgray')
-
+ax_a.set_title('Fig 5a-1', loc='left', fontweight='bold')
 fig_a.tight_layout()
 fig_a.savefig('fig5a_pearson.png')
 print("Saved: fig5a_pearson.png")
+
+# Panel (a2) — late-time synchronised oscillations [800, 850]
+fig_a2, ax_a2 = plt.subplots(figsize=(5, 3.5))
+m1 = (t_fin >= 800) & (t_fin <= 850)
+ax_a2.plot(t_fin[m1], s1[m1], color=BLUE,   lw=1.5, label=r'$\langle\sigma_1^x(t)\rangle$')
+ax_a2.plot(t_fin[m1], s2[m1], color=ORANGE, lw=1.5, label=r'$\langle\sigma_2^x(t)\rangle$')
+ax_a2.set(xlim=(800,850), xlabel=r'$t\omega_1$', ylabel=r'$\langle\sigma^x\rangle$')
+ax_a2.set_title("Fig 5a-1", loc='left', fontweight='bold')
+ax_a2.legend(fontsize=9, loc='upper right', framealpha=0.9, edgecolor='lightgray')
+fig_a2.tight_layout()
+fig_a2.savefig('fig5a_sync_late.png')
+print("Saved: fig5a_sync_late.png")
+
+# Panel (a3) — early incoherent transient [100, 150]
+fig_a3, ax_a3 = plt.subplots(figsize=(5, 3.5))
+m2 = (t_fin >= 100) & (t_fin <= 150)
+ax_a3.plot(t_fin[m2], s1[m2], color=BLUE,   lw=1.5, label=r'$\langle\sigma_1^x(t)\rangle$')
+ax_a3.plot(t_fin[m2], s2[m2], color=ORANGE, lw=1.5, label=r'$\langle\sigma_2^x(t)\rangle$')
+ax_a3.set(xlim=(100,150), xlabel=r'$t\omega_1$', ylabel=r'$\langle\sigma^x\rangle$')
+ax_a3.set_title("Fig 5a-2", loc='left', fontweight='bold')
+ax_a3.legend(fontsize=9, loc='upper right', framealpha=0.9, edgecolor='lightgray')
+fig_a3.tight_layout()
+fig_a3.savefig('fig5a_sync_early.png')
+print("Saved: fig5a_sync_early.png")
 
 # Panel (b)
 fig_b, ax_b = plt.subplots(figsize=(6, 4.5))
@@ -226,7 +233,7 @@ ax_b.plot(t_sub, Pe1_t, color=RED,  lw=1.5, label=r'$\langle P_1^e(t)\rangle$')
 ax_b.plot(t_sub, Pe2_t, color=BLUE, lw=1.5, label=r'$\langle P_2^e(t)\rangle$')
 ax_b.set(xlim=(0,1000), ylim=(0.40,0.62),
          xlabel=r'$t\omega_1$', ylabel='Population')
-ax_b.set_title('(b)', loc='left', fontweight='bold')
+ax_b.set_title('Fig 5b', loc='left', fontweight='bold')
 ax_b.legend(fontsize=10, loc='upper right', framealpha=0.9, edgecolor='lightgray')
 fig_b.tight_layout()
 fig_b.savefig('fig5b_subradiance.png')
@@ -236,15 +243,9 @@ print("Saved: fig5b_subradiance.png")
 fig_c, ax_c = plt.subplots(figsize=(6, 4.5))
 ax_c.plot(t_neg,  neg_t,  color=CYAN,   lw=2.0, label=r'$\mathcal{N}(t)$')
 ax_c.plot(t_coll, C_coll, color=PURPLE, lw=2.0, label=r'$\bar{I}(\mathcal{E}(t))$')
-ax_c.annotate(f'$\\mathcal{{N}}_M={N_M:.2f}$',
-              xy=(t_NM,N_M), xytext=(t_NM+6,N_M+0.05), fontsize=10, color=CYAN,
-              arrowprops=dict(arrowstyle='->', color=CYAN, lw=1.0))
-ax_c.annotate(f'$\\bar{{I}}_M={I_M:.2f}$',
-              xy=(t_IM,I_M), xytext=(t_IM+6,I_M+0.05), fontsize=10, color=PURPLE,
-              arrowprops=dict(arrowstyle='->', color=PURPLE, lw=1.0))
 ax_c.set(xlim=(0,100), ylim=(-0.02,1.0),
          xlabel=r'$t\omega_1$', ylabel='Value')
-ax_c.set_title('(c)', loc='left', fontweight='bold')
+ax_c.set_title('Fig 5c', loc='left', fontweight='bold')
 ax_c.legend(fontsize=10, loc='upper right', framealpha=0.9, edgecolor='lightgray')
 fig_c.tight_layout()
 fig_c.savefig('fig5c_entanglement.png')
