@@ -21,7 +21,7 @@ def N_B(w):
     a = beta * w
     return 0.0 if a > 700 else (1/a if a < 1e-12 else 1/(np.exp(a) - 1))
 
-# Fourier transforms
+# Dissipative rates and energy shifts
 def Gamma_pos(oq):
     re = np.pi * (N_B(oq) + 1) * J(oq)
     f  = lambda w: J(w) * ((N_B(w)+1)/(oq-w+1e-30) + N_B(w)/(oq+w))
